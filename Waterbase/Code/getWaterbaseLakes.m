@@ -17,6 +17,7 @@ qlakes = cleanUnits(qlakes);
 qlakes = aggregateData(qlakes);
 finalLakes = joinAttributes(finalLakes,qlakes);
 
+% TODO: stations claims not to be valid xls
 stlakes = Lake;
 [~, ~, data] = xlsread([inputLocation '\lakes_v10_stations.xls']);
 stlidx = 1;
@@ -30,7 +31,7 @@ finalLakes = joinAttributes(finalLakes,stlakes);
 function newLakes = aggregateData(lakes) 
     % Initialize lakes arr to includes all lakes, and double the variables
     % (to include update counts) Also includes headers on top and side
-    lakesArr = zeros(26,length(lakes)+1);
+    lakesArr = zeros(26,length(lakes));
     % Put variable header column on side
     varHeader = {'Chlorophyll a';'0';'Conductivity';'0';'Dissolved Oxygen';'0';'Nitrate';'0';'Nitrite';'0';'Secchi Depth';'0';'Silicate';'0'; ... 
         'Temperature';'0';'Total Ammonium';'0';'Total Inorganic Nitrogen';'0';'Total Nitrogen';'0';'Total Organic Carbon';'0';'Total Phosphorus';'0'};
@@ -142,10 +143,10 @@ function lakes = cleanUnits(lakes)
 end
 
 function s = parseqRow(row,s)
-   wbidIdx = 2;
-   determinandIdx = 8;
-   unitIdx = 9; % TODO: Units are different within determinands...
-   meanValIdx = 15;
+   wbidIdx = 1;
+   determinandIdx = 2;
+   unitIdx = 3; % TODO: Units are different within determinands...
+   meanValIdx = 4;
    
    s.putAttribute('WaterbaseID',row{wbidIdx});
    if ~strcmp(row{determinandIdx},'') && ~strcmp(row{meanValIdx},'')

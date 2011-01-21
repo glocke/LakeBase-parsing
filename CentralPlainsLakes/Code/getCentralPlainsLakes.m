@@ -1,6 +1,7 @@
 function finalLakes = getCentralPlainsLakes(inputLocation)
 % inputLocation should be parent dir, so in this case:
 % D:\Users\glocke-ou\Documents\CentralPlains\Data
+% TODO: Check if manipulated values (/1000) are valid
 tic
 
 finalLakes = Lake;
@@ -24,11 +25,11 @@ for i=2:size(data,1)
 	parsetmdRow(data(i,:),tmdlakes(tmdlidx)); %object is modified in place
 	tmdlidx = tmdlidx + 1;
 end
-finalLakes = joinAttributes(finalLakes,tmdlakes);
+% finalLakes = joinAttributes(finalLakes,tmdlakes); TODO: I think we
+% shouldn't join attributes here...
 finalLakes = joinValues(finalLakes,tmdlakes);
 
 function s = parsetmdRow(row,s)
-   stateIdx = 2;
    nameIdx = 4;
    dateIdx = 5;
    timeIdx = 9;
@@ -47,7 +48,6 @@ function s = parsetmdRow(row,s)
    clIdx = 38; % ppm
    so4Idx = 39; % ppm
    
-   s.state = row{stateIdx};
    s.name = row{nameIdx};
    if isnan(timeIdx)
        sampleTime = [row{dateIdx} ' 00:00:00'];
@@ -98,7 +98,6 @@ function s = parsetmdRow(row,s)
 end
 
 function s = parsecpRow(row,s)
-   stateIdx = 1;
    nameIdx = 2;
    latIdx = 7;
    lonIdx = 8;
@@ -107,7 +106,6 @@ function s = parsecpRow(row,s)
    secchiIdx = 21; % m
    
    if ~strcmp(row{latIdx},'') || ~strcmp(row{lonIdx},'')
-        s.state = row{stateIdx};
         s.name = row{nameIdx};
         s.lat = row{latIdx};
         s.lon = row{lonIdx};
@@ -115,13 +113,13 @@ function s = parsecpRow(row,s)
         if ~isnan(row{areaIdx})
             lakearea = str2double(row{areaIdx});
             lakearea = lakearea*4046.85642; % Convert acres to m^2
-            s.putAttribute('Surface Area',lakearea); 
+            s.putAttribute('area',lakearea); 
         end
         if ~isnan(row{meanDepthIdx})
-            s.putAttribute('Depth',row{meanDepthIdx});
+            s.putAttribute('mean depth',row{meanDepthIdx});
         end
         if ~isnan(row{secchiIdx})
-            s.putAttribute('Secchi Depth',row{secchiIdx});
+            s.putAttribute('secchi depth',row{secchiIdx});
         end
    end
 end
