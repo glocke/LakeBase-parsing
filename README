@@ -1,0 +1,2 @@
+Contains seperate folders for each parse function specific to a LakeBase data source. As of now, parse functions always
+create an array of Lake objects (including time-series data) for further code to upload these objects to Lakebase server.

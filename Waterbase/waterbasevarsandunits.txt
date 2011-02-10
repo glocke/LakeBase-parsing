@@ -1,0 +1,14 @@
+Chlorophyll a:ug/l
+Conductivity:uS/cm
+Dissolved Oxygen:mg/l O2
+Nitrate:mg/l N
+Nitrite:mg/l N
+pH:
+Secchi Depth:m
+Silicate:mg/l Si
+Temperature:oC
+Total Ammonium:mg/l N
+Total Inorganic Nitrogen:mg/l N
+Total Nitrogen:mg/l N
+Total Organic Carbon:mg/l C
+Total Phosphorus:mg/l P

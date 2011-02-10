@@ -1,0 +1,350 @@
+classdef LakeNew < handle
+    %LAKE An object representing a lake and its metadata
+    %   Detailed explanation goes here
+    
+    properties
+        %these will always exist
+        id;
+        name;
+        lat;
+        lon;
+        files;
+        state;
+    end
+    properties(Access=protected)
+        %lake attribute data
+        attributes = [];%type,contributor,numvalue,strvalue
+        data; %id,substreamid,unixtime,value,depth,varname
+        
+        
+    end
+    properties(Access=private)
+        dataRetrieved = false;
+        attsRetrieved = false;
+        %actual observation value data
+        
+    end
+    
+    methods
+        function obj = LakeNew(lakeid,lattitude,longitude)
+            %LAKENEW Construct lake object
+            obj.id = [];
+            obj.lat = [];
+            obj.lon = [];
+            %obj.state = LakeState.unknown; %CHANGED
+            obj.files = [];
+            
+            %If supplied, fill in lake id and lat/lon, otherwise assume we
+            %don't know the id, lat, or lon
+            if(nargin == 1)
+                obj.id = lakeid;
+            end
+            
+            if(nargin == 3)
+                obj.id = lakeid;
+                obj.lat = lattitude;
+                obj.lon = longitude;
+            end
+        end
+        
+        function names = getAttributeNames(obj)
+            %GETATTRIBUTENAMES Return attribute names this lake has
+            
+            if(~obj.attsRetrieved)
+                obj.retrieveAttributes();
+            end
+            
+            names = unique(obj.attributes(:,1));
+        end
+        
+        function prop = getAttribute(obj,propName)
+            
+            if(~obj.attsRetrieved)
+                obj.retrieveAttributes();
+            end
+            
+            check = obj.attributes(strcmpi(obj.attributes(:,1),propName),:);
+            
+            %Does the requested property even exist for this lake?
+            if(isempty(check))
+                prop = [];
+                return;
+            end
+            
+            %Either it is in the strval column, or the numval column. 
+            % Check to see if the numval column is NaN (NULL in DB). If it
+            % is NaN, must be a stringval type
+            if(isnan(check{3}))
+                prop = check{4};
+            else
+                prop = check{3};
+            end
+        end
+        
+        function data = getTSData(obj,variable)
+            %GETTSDATA Get Time-series data for this lake
+            
+            if(~obj.dataRetrieved)
+                obj.retrieveData();
+            end
+            
+            %These are the columns of obj.data
+            %id,substreamid,unixtime,value,depth,varname
+            if(nargin == 2)
+                data = obj.data(strcmpi(obj.data(:,6),variable),[3 4 5 6]);
+            else
+                data = obj.data(:,[3 4 5 6]);
+            end
+        end
+        
+        function putAttribute(obj,attType,val)
+            %PUTATTRIBUTES Add or replace attribute value
+            
+            %Lazily initiailize attributes
+            if(~obj.attsRetrieved)
+                obj.retrieveAttributes();
+            end
+            
+            if(isempty(attType))
+                error('Attribute Type cannot be empty!');
+            end
+            
+            %type,contributor,numvalue,strvalue
+            indx = find(strcmpi(obj.attributes(:,1),attType),1);
+            
+            if(isnumeric(val))
+                colindx = 3;
+            elseif(ischar(val))
+                colindx = 4;
+            else
+                error('attribute value must be string or numeric!');
+            end
+            
+            if(~isempty(indx))
+                obj.attributes{indx,colindx} = val;
+            else
+                global contributor;
+                newRow = {attType,contributor,NaN,'null'};
+                newRow{colindx} = val;
+                obj.attributes(size(obj.attributes,1)+1,:) = newRow;
+            end
+            
+        end
+		
+		function mergeAttributes(obj, toMerge)
+            %MERGEATTRIBUTES This method overwrites any attributes on this 
+            %object with the attributes of the passed Lake object.
+            %Non-conflicting attributes will be kept
+            %
+            % Lake1
+            %   attr1:"USA"
+            %   attr2:2000
+            %   attr3:"Wisconsin"
+            %
+            % Lake2
+            %   attr1:"Germany"
+            %   attr2:1000
+            %Using this syntax
+            % Lake1.mergeAttributes(Lake2)
+            % 
+            % Results in these attributes
+            %   attr1:"Germany"
+            %   attr2:1000
+            %   attr3:"Wisconsin"
+            
+            if(~obj.attsRetrieved)
+                obj.retrieveAttributes();
+            end
+            
+            error('lake.mergeAttributes not implemented yet');
+			%obj.attributes.putAll(toMerge.attributes);
+        end
+        
+        function addFile(obj,fileObj)
+            for i=1:length(obj.files)
+                if(obj.files(i).type == fileObj.type)
+                    obj.files(i) = fileObj;
+                    return;%if we got here, we're done! leave function.
+                end
+            end
+            %if we get here, filetype doesn't already exist.
+            obj.files(length(obj.files)+1) = fileObj;
+        end
+        
+        function addValue(obj,uTime,value,depth,variableName)
+            %ADDVALUE Adds a value observation to this site. 
+            % Uses default subsite. Mostly used for large data import
+            % uTime must be unix timestamp (see datenum2unix)
+            % value must be double floating point
+            % depth must be double float or NaN
+            % variableName must match GLEON controlled vocab (see variables
+            % table in lakebase db)
+            
+            %id,substreamid,unixtime,value,depth,varname
+            obj.data(length(obj.data)+1,:) = {NaN,NaN,datenum2unix(uTime),value,depth,variableName};
+        end
+        
+        function populateAllData(obj)
+            if(isempty(obj.id))
+                error('Sorry, can not populate lake object without lake ID');
+            end
+            
+            obj.retrieveAttributes();
+            obj.retrieveData();
+            obj.retrieveLatLonName();
+        end
+        function updateDB(obj)
+%             exists = fetch(LakeNew.getConn(),['SELECT id FROM sites WHERE id = ' num2str(obj.id)]);
+%             if isempty(exists)
+%                sql = ['INSERT into sites(name,lon,lat) VALUES (' obj.name ',' num2str(obj.lon) ',' num2str(obj.lat) '); Select LAST_INSERT_ID() from sites;'];
+%                results = exec(LakeNew.getConn(), sql);
+%                if ~isempty(results.Message)
+%                    error('Update not successful'); 
+%                end
+%                close(results);
+%             end
+            for i=1:size(obj.attributes,1)
+                obj.updateDBAttribute(obj.attributes(i,:));
+            end
+%             for i=1:size(obj.data,1)
+%                 updateDBValue(obj.data(i,:)); 
+%             end
+        end
+    end
+    methods(Access=private)
+        function updateDBValue(data) % %id,substreamid,unixtime,value,depth,varname
+            if isDuplicateValue(data) % Make sure the substreamid is present
+                disp(['The substreamid: ' num2str(data{1,2}) ' with the value: ' num2str(data{1,4}) 'is a duplicate. Continuing to add other datavalues.']);         
+            else
+                sql = ['INSERT INTO datavalues(substream, timestamp, value) VALUES (' num2str(data{1,2}) ',FROM_UNIXTIME(' data{1,3} '),' num2str(data{1,4}) '); Select LAST_INSERT_ID() from datavalues;'];
+                curs = exec(LakeNew.getConn(), sql);
+                if ~isempty(curs.Message)
+                   error(['Error occured on LakeBase datavalue update: ' curs.Message]); 
+                end
+                close(curs);
+            end
+        end
+        function updateDBAttribute(obj,attribute) %type,contributor,numvalue,strvalue
+            if isDuplicateAttribute(obj,attribute{1,1}) %ERROR STEMS FROM LACK OF ADDITION OF testsiteattributes TO lakebase.gleon.org/lakebase
+                disp(['This attribute: "' attribute{1,1} '" already exists for lakeid: ' num2str(obj.id) '. Continuing to add other attributes.']);
+            else
+                sql = ['SELECT id FROM attributetypes WHERE name = "' attribute{1,1} '"' ];
+                typeid = fetch(LakeNew.getConn(),['SELECT id FROM attributetypes WHERE name = "' attribute{1,1} '"' ]);
+                if ~strcmpi(attribute{1,4},'null')
+                    attribute{1,4} = ['"' attribute{1,4} '"']; 
+                end
+                curs = exec(LakeNew.getConn(),['INSERT INTO testsiteattributes(site,type,contributor,numvalue,strvalue) VALUES (' ...
+                    num2str(obj.id) ',' num2str(typeid{1,1}) ',"' attribute{1,2} '",' num2str(attribute{1,3}) ',' attribute{1,4} ');' ...
+                    ' SELECT LAST_INSERT_ID() FROM testsiteattributes;']);
+                if ~isempty(curs.Message)
+                   error(['Error occured on LakeBase attribute update: ' curs.Message]);
+                end
+                close(curs);
+            end
+        end
+        function dup = isDuplicateAttribute(obj, attributeName) % Check every time new attribute is added...
+            dup = 0;
+            if ~isnan(obj.id)
+                attres = fetch(LakeNew.getConn(),['SELECT type FROM siteattributes WHERE site = ' num2str(obj.id) ]);    
+                for i=1:size(attres,1)
+                    currType = fetch(LakeNew.getConn(),['SELECT name FROM attributetypes WHERE id = ' num2str(attres{i,1})]);
+                    if strcmp(attributeName,currType)
+                        dup = 1;
+                        break;
+                    end
+                end
+            end
+        end
+        
+        function dup = isDuplicateValue(obj, data) %id,substreamid,unixtime,value,depth,varname
+            dup = 0;
+            results = fetch(LakeNew.getConn(),['SELECT UNIX_TIMESTAMP(datavalues.timestamp), datavalues.value '...
+                'FROM datavalues '...
+                'WHERE datavalues.substream IN ( SELECT substreams.id '...
+                'FROM substreams '...
+                'WHERE substreams.stream IN ( SELECT streams.id '...
+                'FROM streams '...
+                'WHERE streams.subsite IN ( SELECT subsites.id '...
+                'FROM subsites '...
+                'WHERE subsites.site = ' num2str(obj.id) ...
+                ')))']);
+            for i=1:size(results,1)
+                if results{i,1} == data{1,3} && results{i,2} == data{1,4}
+                   dup = 1;
+                   break;
+                end
+            end
+        end
+        
+        function retrieveAttributes(obj)
+            sql = sprintf('Select name,contributor,numvalue,strvalue from `siteattributes` s join `attributetypes` a on a.id = s.type where site=%i',obj.id);
+            obj.attributes =  fetch(LakeNew.getConn(),sql);
+            obj.attsRetrieved = true;
+        end
+        
+        function retrieveData(obj)
+            dataRS = fetch(LakeNew.getConn(),['SELECT datavalues.id,datavalues.substream, UNIX_TIMESTAMP(datavalues.timestamp), datavalues.value, substreams.depth, variables.name' ...
+                ' FROM datavalues' ...
+                ' JOIN substreams ON datavalues.substream = substreams.id' ...
+                ' JOIN streams ON substreams.stream = streams.id '...
+                ' JOIN subsites ON subsites.id = streams.subsite '...
+                ' JOIN variables ON variables.id = streams.variable '...
+                ' WHERE subsites.site = ' num2str(obj.id) ]);
+            if(isempty(dataRS))
+                obj.data = [];
+            else
+                obj.data = dataRS;
+                for i=1:size(obj.data,1)
+                    obj.data{i,3} = unix2datenum(obj.data{i,3});
+                end
+            end
+            
+            obj.dataRetrieved = true;
+            
+        end
+        
+        function retrieveFiles(obj)
+            
+        end
+        
+        function retrieveLatLonName(obj)
+            d = fetch(LakeNew.getConn(),sprintf('select lat,lon,name from sites where id=%i',obj.id));
+            if(isempty(d))
+                error('No Lake with that ID.');
+            end
+            
+            obj.lat = d{1};
+            obj.lon = d{2};
+            obj.name = d{3};
+        end
+    end
+    methods(Static,Access=private)
+        function dbconn = getConn()
+            %GETCONN Connect to the lakebase database.
+            %
+            %   This function creates and returns the appropriate database connection 
+            %   object for the lakebase server. It automatically caches the connection 
+            %   and will not re-build the connection if it isn't required.
+
+            %First add the jconnection library to the javaclasspath if needed
+            % CHECK FIRST! javaaddpath calls 'clear java' which wipes out all
+            % global variables and means the whole global caching below won't work.
+            warning('off','MATLAB:Java:DuplicateClass');
+            classpath = javaclasspath('-dynamic');
+            if(isempty(strfind(classpath,'./mysql-connector-java-5.1.12-bin.jar'))) %CHANGED
+                javaaddpath('./mysql-connector-java-5.1.12-bin.jar'); %CHANGED
+            end
+
+            persistent conn;
+            if(isempty(conn) || ~isconnection(conn))
+                %conn = database('lakebase','root','p@ss4r00t',...
+                %     'com.mysql.jdbc.Driver','jdbc:mysql://mysql.uwcfl.org/lakebase');
+                conn = database('lakebase','matlabUser','xStA7LbHjpvDRd6T',...
+                    'com.mysql.jdbc.Driver','jdbc:mysql://lakebase.gleon.org/lakebase');
+            end
+
+            dbconn = conn;
+        end
+    end
+end
+
