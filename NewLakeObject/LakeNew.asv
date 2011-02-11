@@ -13,7 +13,7 @@ classdef LakeNew < handle
     end
     properties(Access=protected)
         %lake attribute data
-        attributes = [];%type,contributor,numvalue,strvalue
+        attributes = [];%id,type,contributor,numvalue,strvalue
         data; %id,substreamid,unixtime,value,depth,varname
         
         
@@ -54,7 +54,7 @@ classdef LakeNew < handle
                 obj.retrieveAttributes();
             end
             
-            names = unique(obj.attributes(:,1));
+            names = unique(obj.attributes(:,2));
         end
         
         function prop = getAttribute(obj,propName)
@@ -63,7 +63,7 @@ classdef LakeNew < handle
                 obj.retrieveAttributes();
             end
             
-            check = obj.attributes(strcmpi(obj.attributes(:,1),propName),:);
+            check = obj.attributes(strcmpi(obj.attributes(:,2),propName),:);
             
             %Does the requested property even exist for this lake?
             if(isempty(check))
@@ -109,22 +109,25 @@ classdef LakeNew < handle
                 error('Attribute Type cannot be empty!');
             end
             
-            %type,contributor,numvalue,strvalue
-            indx = find(strcmpi(obj.attributes(:,1),attType),1);
+            %id,type,contributor,numvalue,strvalue
+            indx = find(strcmpi(obj.attributes(:,2),attType),1);
             
             if(isnumeric(val))
-                colindx = 3;
-            elseif(ischar(val))
                 colindx = 4;
+            elseif(ischar(val))
+                colindx = 5;
             else
                 error('attribute value must be string or numeric!');
             end
             
-            if(~isempty(indx))
+            if (obj.isDuplicateAttribute(attType))
+                disp(['The attribute: "' attType '" already exists in LakeBase for the lake: ' num2str(obj.id)]);
+                disp('The attribute will not be added to this lake.');
+            elseif(~isempty(indx))
                 obj.attributes{indx,colindx} = val;
             else
                 global contributor;
-                newRow = {attType,contributor,NaN,'null'};
+                newRow = {NaN,attType,contributor,NaN,'null'};
                 newRow{colindx} = val;
                 obj.attributes(size(obj.attributes,1)+1,:) = newRow;
             end
@@ -181,7 +184,12 @@ classdef LakeNew < handle
             % table in lakebase db)
             
             %id,substreamid,unixtime,value,depth,varname
-            obj.data(length(obj.data)+1,:) = {NaN,NaN,datenum2unix(uTime),value,depth,variableName};
+            if obj.isDuplicateValue({NaN,NaN,datenum2unix(uTime),value,depth,variableName})
+                disp(['The datavalue: "' variableName '" already exists in LakeBase for the lake: ' num2str(obj.id) ' at time: ' datestr(uTime)]);
+                disp('The datavalue will not be added to this lake.');
+            else
+                obj.data(length(obj.data)+1,:) = {NaN,NaN,datenum2unix(uTime),value,depth,variableName};
+            end
         end
         
         function populateAllData(obj)
@@ -194,57 +202,64 @@ classdef LakeNew < handle
             obj.retrieveLatLonName();
         end
         function updateDB(obj)
-%             exists = fetch(LakeNew.getConn(),['SELECT id FROM sites WHERE id = ' num2str(obj.id)]);
-%             if isempty(exists)
-%                sql = ['INSERT into sites(name,lon,lat) VALUES (' obj.name ',' num2str(obj.lon) ',' num2str(obj.lat) '); SELECT LAST_INSERT_ID();'];
-%                results = exec(LakeNew.getConn(), sql);
-%                if ~isempty(results.Message)
-%                    error('Update not successful'); 
-%                end
-%                close(results);
-%             end
+            exists = fetch(LakeNew.getConn(),['SELECT id FROM sites WHERE id = ' num2str(obj.id)]);
+            if isempty(exists)
+               sql = ['INSERT into sites(name,lon,lat) VALUES (' obj.name ',' num2str(obj.lon) ',' num2str(obj.lat) '); Select LAST_INSERT_ID();'];
+               results = exec(LakeNew.getConn(), sql);
+               if ~isempty(results.Message)
+                   error('Update not successful: results.Message'); 
+               end
+               close(results);
+            end
             for i=1:size(obj.attributes,1)
                 obj.updateDBAttribute(obj.attributes(i,:));
             end
-%             for i=1:size(obj.data,1)
-%                 updateDBValue(obj.data(i,:)); 
-%             end
+            for i=1:size(obj.data,1)
+                 updateDBValue(obj.data(i,:)); 
+             end
         end
     end
     methods(Access=private)
         function updateDBValue(data) % %id,substreamid,unixtime,value,depth,varname
-            if isDuplicateValue(data) % Make sure the substreamid is present
-                disp(['The substreamid: ' num2str(data{1,2}) ' with the value: ' num2str(data{1,4}) 'is a duplicate. Continuing to add other datavalues.']);         
-            else
-                sql = ['INSERT INTO datavalues(substream, timestamp, value) VALUES (' num2str(data{1,2}) ',FROM_UNIXTIME(' data{1,3} '),' num2str(data{1,4}) '); Select LAST_INSERT_ID();'];
-                curs = exec(LakeNew.getConn(), sql);
-                if ~isempty(curs.Message)
-                   error('Error occured on LakeBase datavalue update'); 
-                end
-                close(curs);
+            sql1 = ['INSERT INTO datavalues(substream, timestamp, value) VALUES (' num2str(data{1,2}) ',FROM_UNIXTIME(' data{1,3} '),' num2str(data{1,4}) ');'];
+            sql2 = 'Select LAST_INSERT_ID();';
+            curs = exec(LakeNew.getConn(), sql1);
+            curs2 = exec(LakeNew.getConn(), sql2);
+            if ~isempty(curs.Message)
+                error(['Error occured on LakeBase datavalue update: ' curs.Message]);
             end
+            if ~isempty(curs2.Message)
+                error(['Error occured on LakeBase datavalue update: ' curs2.Message]);
+            end
+            close(curs);
+            close(curs2);
         end
         function updateDBAttribute(obj,attribute) %type,contributor,numvalue,strvalue
-            if isDuplicateAttribute(obj,attribute{1,1})
-                disp(['This attribute: "' attribute{1,1} '" already exists for lakeid: ' num2str(obj.id) '. Continuing to add other attributes.']);
-            else
-                typeid = fetch(LakeNew.getConn(),['SELECT id FROM attributetypes WHERE name = ''' attribute(1,1) '''' ]);
-                if ~strcmpi(attribute{1,4},'null')
-                    attribute{1,4} = ['"' attribute{1,4} '"']; 
-                end
-                curs = exec(LakeNew.getConn(),['INSERT INTO testsiteattributes(site,type,contributor,numvalue,strvalue) VALUES (' ...
-                    num2str(obj.id) ',' num2str(typeid{1,1}) ',"' attribute{1,2} '",' num2str(attribute{1,3}) ',' attribute{1,4} ');' ...
-                    ' SELECT LAST_INSERT_ID();']);
-                if ~isempty(curs.Message)
-                   error('Error occured on LakeBase attribute update');
-                end
-                close(curs);
+            typeid = fetch(LakeNew.getConn(),['SELECT id FROM attributetypes WHERE name = "' attribute{1,1} '"' ]);
+            if ~strcmpi(attribute{1,4},'null')
+                attribute{1,4} = ['"' attribute{1,4} '"'];
             end
+            if isnan(attribute{1,3})
+               attribute{1,3} = 'null'; 
+            end
+            sql1 = ['INSERT INTO siteattributes(site,type,contributor,numvalue,strvalue) VALUES (' ...
+                num2str(obj.id) ',' num2str(typeid{1,1}) ',"' attribute{1,2} '",' num2str(attribute{1,3}) ',' attribute{1,4} ');'];
+            sql2 = 'Select LAST_INSERT_ID();';
+            curs = exec(LakeNew.getConn(),sql1);
+            curs2 = exec(LakeNew.getConn(), sql2);
+            if ~isempty(curs.Message)
+                error(['Error occured on LakeBase attribute update: ' curs.Message]); 
+            end
+            if ~isempty(curs2.Message)
+                error(['Error occured on LakeBase datavalue update: ' curs2.Message]);
+            end
+            close(curs);
+            close(curs2);
         end
-        function dup = isDuplicateAttribute(obj, attributeName) % Check every time new attribute is added...
+        function dup = isDuplicateAttribute(obj, attributeName)
             dup = 0;
             if ~isnan(obj.id)
-                attres = fetch(LakeNew.getConn(),['SELECT type FROM siteattributes WHERE site = ' num2str(obj.id) ]);    
+                attres = fetch(LakeNew.getConn(),['SELECT type FROM siteattributes WHERE site = ' num2str(obj.id) ]);   
                 for i=1:size(attres,1)
                     currType = fetch(LakeNew.getConn(),['SELECT name FROM attributetypes WHERE id = ' num2str(attres{i,1})]);
                     if strcmp(attributeName,currType)
@@ -276,7 +291,7 @@ classdef LakeNew < handle
         end
         
         function retrieveAttributes(obj)
-            sql = sprintf('Select name,contributor,numvalue,strvalue from `siteattributes` s join `attributetypes` a on a.id = s.type where site=%i',obj.id);
+            sql = sprintf('Select id,name,contributor,numvalue,strvalue from `siteattributes` s join `attributetypes` a on a.id = s.type where site=%i',obj.id);
             obj.attributes =  fetch(LakeNew.getConn(),sql);
             obj.attsRetrieved = true;
         end
